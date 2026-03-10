@@ -1,0 +1,46 @@
+{
+  "name": "@goldhold/mcp-server",
+  "version": "1.0.0",
+  "mcpName": "io.github.jerrysrodz/goldhold",
+  "mcpRegistry": true,
+  "description": "GoldHold MCP server -- persistent memory for AI agents. Search, store, and recall across sessions. https://goldhold.ai",
+  "type": "module",
+  "main": "index.js",
+  "bin": {
+    "goldhold-mcp": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.22.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jerrysrodz/goldhold-mcp-server.git"
+  },
+  "homepage": "https://goldhold.ai",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "agent",
+    "memory",
+    "persistent",
+    "goldhold",
+    "recall",
+    "langchain",
+    "crewai"
+  ],
+  "author": "All Auto Tunes LLC",
+  "license": "Proprietary",
+  "files": [
+    "index.js",
+    "relay-client.js",
+    "README.md"
+  ]
+}
