@@ -6,7 +6,7 @@
     "url": "https://github.com/jerrysrodz/goldhold-mcp-server",
     "source": "github"
   },
-  "version": "1.0.3",
+  "version": "1.0.4",
   "websiteUrl": "https://goldhold.ai",
   "icons": [
     {
@@ -36,14 +36,7 @@
   "remotes": [
     {
       "type": "streamable-http",
-      "url": "https://mcp.goldhold.ai/mcp",
-      "authorization": {
-        "type": "oauth2",
-        "authorizationUrl": "https://mcp.goldhold.ai/authorize",
-        "tokenUrl": "https://mcp.goldhold.ai/token",
-        "registrationUrl": "https://mcp.goldhold.ai/register",
-        "scopes": ["goldhold"]
-      }
+      "url": "https://mcp.goldhold.ai/mcp"
     },
     {
       "type": "streamable-http",
