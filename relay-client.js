@@ -62,3 +62,48 @@ export async function send(to, subject, body) {
 export async function status() {
   return relayCall("GET", "/v1/status");
 }
+
+export async function discover() {
+  return relayCall("GET", "/v1/discover");
+}
+
+export async function agents() {
+  return relayCall("GET", "/v1/agents");
+}
+
+export async function channels() {
+  return relayCall("GET", "/v1/channels");
+}
+
+export async function profile(update) {
+  if (update) return relayCall("POST", "/v1/profile", update);
+  return relayCall("GET", "/v1/status");
+}
+
+export async function memoryRead(id, folder, limit) {
+  return relayCall("POST", "/v1/memory/read", { id, folder, limit: limit || 10 });
+}
+
+export async function memoryNamespaces() {
+  return relayCall("GET", "/v1/memory/namespaces");
+}
+
+export async function memoryWrite(subject, body, type, folder, tags) {
+  return relayCall("POST", "/v1/memory/write", { subject, body, type: type || "note", folder: folder || "unfiled", tags: tags || [], source: "mcp" });
+}
+
+export async function taskList() {
+  return relayCall("GET", "/v1/tasks");
+}
+
+export async function taskCreate(description, priority, assignee, tags) {
+  return relayCall("POST", "/v1/tasks", { description, priority: priority || "normal", assignee, tags });
+}
+
+export async function taskComplete(taskId, notes) {
+  return relayCall("POST", `/v1/tasks/${taskId}/complete`, { notes });
+}
+
+export async function taskUpdate(taskId, updates) {
+  return relayCall("PATCH", `/v1/tasks/${taskId}`, updates);
+}

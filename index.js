@@ -9,7 +9,7 @@ import * as relay from "./relay-client.js";
 
 const server = new McpServer({
   name: "goldhold",
-  version: "1.1.0",
+  version: "1.2.0",
 });
 
 // 1. goldhold_search
@@ -149,6 +149,144 @@ server.tool(
   {},
   async () => {
     const result = await relay.status();
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// 10. goldhold_discover
+server.tool(
+  "goldhold_discover",
+  "List agents, channels, and capabilities in the GoldHold network.",
+  {},
+  async () => {
+    const result = await relay.discover();
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// 11. goldhold_agents
+server.tool(
+  "goldhold_agents",
+  "List all agents in the GoldHold network.",
+  {},
+  async () => {
+    const result = await relay.agents();
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// 12. goldhold_memory_read
+server.tool(
+  "goldhold_memory_read",
+  "Read a specific memory packet by ID, or browse a folder's contents.",
+  {
+    id: z.string().optional().describe("Packet ID to read directly"),
+    folder: z.string().optional().describe("Folder to browse (e.g. decisions, people, work)"),
+    limit: z.number().optional().default(10).describe("Max items when browsing a folder"),
+  },
+  async ({ id, folder, limit }) => {
+    const result = await relay.memoryRead(id, folder, limit);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// 13. goldhold_memory_namespaces
+server.tool(
+  "goldhold_memory_namespaces",
+  "List all memory folders and their stats (count, last updated).",
+  {},
+  async () => {
+    const result = await relay.memoryNamespaces();
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// 14. goldhold_task_list
+server.tool(
+  "goldhold_task_list",
+  "List open tasks from the GoldHold task queue.",
+  {},
+  async () => {
+    const result = await relay.taskList();
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// 15. goldhold_task_create
+server.tool(
+  "goldhold_task_create",
+  "Create a new task in the GoldHold task queue.",
+  {
+    description: z.string().describe("Task description"),
+    priority: z.enum(["low", "normal", "high", "critical"]).optional().default("normal").describe("Task priority"),
+    assignee: z.string().optional().describe("Agent to assign the task to"),
+    tags: z.array(z.string()).optional().describe("Tags for categorization"),
+  },
+  async ({ description, priority, assignee, tags }) => {
+    const result = await relay.taskCreate(description, priority, assignee, tags);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// 16. goldhold_task_complete
+server.tool(
+  "goldhold_task_complete",
+  "Mark a task as completed.",
+  {
+    task_id: z.string().describe("Task ID to complete (e.g. TASK-0001)"),
+    notes: z.string().optional().describe("Completion notes"),
+  },
+  async ({ task_id, notes }) => {
+    const result = await relay.taskComplete(task_id, notes);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// 17. goldhold_task_update
+server.tool(
+  "goldhold_task_update",
+  "Update a task's status, priority, or assignee.",
+  {
+    task_id: z.string().describe("Task ID to update"),
+    status: z.string().optional().describe("New status (open, in_progress, blocked, done)"),
+    priority: z.enum(["low", "normal", "high", "critical"]).optional().describe("New priority"),
+    assignee: z.string().optional().describe("New assignee"),
+  },
+  async ({ task_id, status, priority, assignee }) => {
+    const updates = {};
+    if (status) updates.status = status;
+    if (priority) updates.priority = priority;
+    if (assignee) updates.assignee = assignee;
+    const result = await relay.taskUpdate(task_id, updates);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// 18. goldhold_channels
+server.tool(
+  "goldhold_channels",
+  "List communication channels available in the GoldHold network.",
+  {},
+  async () => {
+    const result = await relay.channels();
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// 19. goldhold_profile
+server.tool(
+  "goldhold_profile",
+  "View or update the agent's profile (display name, description, capabilities).",
+  {
+    display_name: z.string().optional().describe("New display name"),
+    description: z.string().optional().describe("Agent description"),
+  },
+  async ({ display_name, description }) => {
+    const update = {};
+    if (display_name) update.display_name = display_name;
+    if (description) update.description = description;
+    const hasUpdate = Object.keys(update).length > 0;
+    const result = hasUpdate ? await relay.profile(update) : await relay.profile();
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   }
 );
