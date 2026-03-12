@@ -9,7 +9,7 @@ import * as relay from "./relay-client.js";
 
 const server = new McpServer({
   name: "goldhold",
-  version: "1.0.0",
+  version: "1.1.0",
 });
 
 // 1. goldhold_search
@@ -30,47 +30,90 @@ server.tool(
 // 2. goldhold_store
 server.tool(
   "goldhold_store",
-  "Write content to GoldHold memory. Stored via relay and synced to Pinecone.",
+  "Save a memory to GoldHold. Stored via relay and synced to Pinecone.",
   {
-    folder: z.string().describe("Target memory folder (e.g. decisions, learnings, work, unfiled)"),
-    key: z.string().describe("Unique key/filename for this memory item"),
-    content: z.string().describe("The content to store"),
+    subject: z.string().describe("Short topic/subject line"),
+    body: z.string().describe("Content to remember"),
+    folder: z.string().optional().describe("Target folder (e.g. decisions, learnings, work, unfiled)"),
+    type: z.string().optional().default("NOTE").describe("Packet type: NOTE, FACT, DECISION, DIRECTIVE, etc."),
   },
-  async ({ folder, key, content }) => {
-    const result = await relay.memoryWrite(folder, key, content);
+  async ({ subject, body, folder, type }) => {
+    const result = await relay.store(subject, body, folder, type);
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   }
 );
 
-// 3. goldhold_read
+// 3. goldhold_turn -- compound: search + store + send in one call
 server.tool(
-  "goldhold_read",
-  "Read a specific memory item by folder and key.",
+  "goldhold_turn",
+  "Compound: search + store + send in one call. The primary tool for most interactions.",
   {
-    folder: z.string().describe("Memory folder name"),
-    key: z.string().describe("Key/filename of the memory item"),
+    search: z.object({
+      query: z.string().describe("Search query"),
+      limit: z.number().optional().default(5),
+    }).optional().describe("Search memories"),
+    store: z.array(z.object({
+      subject: z.string(),
+      body: z.string(),
+      type: z.string().optional().default("NOTE"),
+    })).optional().describe("Store one or more memories"),
+    send: z.object({
+      to: z.string(),
+      subject: z.string(),
+      body: z.string(),
+    }).optional().describe("Send a message"),
+    compact: z.boolean().optional().default(true),
   },
-  async ({ folder, key }) => {
-    const result = await relay.memoryRead(folder, key);
+  async ({ search, store, send, compact }) => {
+    const result = await relay.turn(search, store, send, compact);
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   }
 );
 
-// 4. goldhold_delete
+// 4. goldhold_resume -- session resume
 server.tool(
-  "goldhold_delete",
-  "Delete a specific memory item by folder and key.",
+  "goldhold_resume",
+  "Resume a session. Returns recent context, inbox, and capability card.",
   {
-    folder: z.string().describe("Memory folder name"),
-    key: z.string().describe("Key/filename to delete"),
+    compact: z.boolean().optional().default(true),
   },
-  async ({ folder, key }) => {
-    const result = await relay.memoryDelete(folder, key);
+  async ({ compact }) => {
+    const result = await relay.resume(compact);
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   }
 );
 
-// 5. goldhold_inbox
+// 5. goldhold_batch -- multiple operations
+server.tool(
+  "goldhold_batch",
+  "Multiple operations in one request. Each op has a method and params.",
+  {
+    ops: z.array(z.object({
+      method: z.string().describe("Operation: search, store, send, inbox, status"),
+      params: z.record(z.any()).optional(),
+    })).describe("Array of operations"),
+  },
+  async ({ ops }) => {
+    const result = await relay.batch(ops);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// 6. goldhold_close -- graceful session end
+server.tool(
+  "goldhold_close",
+  "Graceful session end with summary. Saves state for next session.",
+  {
+    session_summary: z.string().describe("Summary of what happened this session"),
+    compact: z.boolean().optional().default(true),
+  },
+  async ({ session_summary, compact }) => {
+    const result = await relay.close(session_summary, compact);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// 7. goldhold_inbox
 server.tool(
   "goldhold_inbox",
   "Check the GoldHold message inbox. Returns messages from other agents and the owner.",
@@ -84,7 +127,7 @@ server.tool(
   }
 );
 
-// 6. goldhold_send
+// 8. goldhold_send
 server.tool(
   "goldhold_send",
   "Send a message via GoldHold messaging. Recipients: owner, guardian, or agent name.",
@@ -99,7 +142,7 @@ server.tool(
   }
 );
 
-// 7. goldhold_status
+// 9. goldhold_status
 server.tool(
   "goldhold_status",
   "Check GoldHold connection health, sync state, and system info.",
