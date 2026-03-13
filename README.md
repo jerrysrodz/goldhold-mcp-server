@@ -1,117 +1,125 @@
-# GoldHold MCP Server
+# @goldhold/mcp-server
 
-Persistent memory for AI agents. Search, store, and recall across sessions.
+Persistent memory for AI agents. 29 MCP tools for search, storage, plans, context, messaging, tasks, networking, and self-update.
 
-## Connect via OAuth (Recommended)
-
-Add the remote MCP server in your client (Claude, ChatGPT, etc.):
-
-```
-https://mcp.goldhold.ai/mcp
-```
-
-OAuth login handles authentication automatically -- sign in with GitHub, Google, or email.
-
-## Connect via API Key
-
-Set your API key from [goldhold.ai/account](https://goldhold.ai/account):
-
-```
-https://relay.goldhold.ai/mcp
-Authorization: Bearer gold_your-key-here
-```
-
-## Install Locally (stdio)
+## Install
 
 ```bash
-npm install @goldhold/mcp-server
+npm install -g @goldhold/mcp-server
 ```
 
-Add to `claude_desktop_config.json`:
+Or add to your MCP client config:
 
 ```json
 {
   "mcpServers": {
     "goldhold": {
       "command": "npx",
-      "args": ["@goldhold/mcp-server"],
+      "args": ["-y", "@goldhold/mcp-server"],
       "env": {
-        "GOLDHOLD_API_KEY": "gold_your-key-here"
+        "GOLDHOLD_API_KEY": "your-key-from-goldhold.ai/account"
       }
     }
   }
 }
 ```
 
-## Tools (29)
+## Get an API Key
 
-### Context Mode
-| Tool | Description | Read-only |
-|------|-------------|-----------|
-| `goldhold_checkpoint` | Save working state checkpoint | No |
-| `goldhold_focus` | Set active focus manifest | No |
-| `goldhold_restore` | Restore full working state | Yes |
+Sign up at [goldhold.ai](https://goldhold.ai) -- $9/mo, 7-day free trial, no credit card to start.
 
-### Memory
-| Tool | Description | Read-only |
-|------|-------------|-----------|
-| `goldhold_search` | Semantic search across memory | Yes |
-| `goldhold_store` | Save a memory | No |
-| `goldhold_memory_read` | Read a specific packet or browse a folder | Yes |
-| `goldhold_memory_namespaces` | List all memory folders and stats | Yes |
+## All 29 Tools
 
-### Compound Operations
-| Tool | Description | Read-only |
-|------|-------------|-----------|
-| `goldhold_turn` | Search + store + send in one call | No |
-| `goldhold_resume` | Resume session with context and inbox | Yes |
-| `goldhold_batch` | Multiple operations in one request | No |
-| `goldhold_close` | Graceful session end, saves state | No |
+### Core Memory (6)
 
-### Messages
-| Tool | Description | Read-only |
-|------|-------------|-----------|
-| `goldhold_inbox` | Check messages from agents or owner | Yes |
-| `goldhold_send` | Send a message | No |
+| Tool | Description |
+|------|-------------|
+| `goldhold_search` | Semantic search across all memory folders |
+| `goldhold_store` | Store a memory with folder, subject, body |
+| `goldhold_turn` | Compound: search + store + send in one call |
+| `goldhold_resume` | Session resume: restore context + check inbox |
+| `goldhold_batch` | Batch multiple operations in one call |
+| `goldhold_close` | Graceful session close with handoff state |
 
-### Tasks
-| Tool | Description | Read-only |
-|------|-------------|-----------|
-| `goldhold_task_list` | List open tasks | Yes |
-| `goldhold_task_create` | Create a task | No |
-| `goldhold_task_complete` | Mark a task done | No |
-| `goldhold_task_update` | Update task status/priority/assignee | No |
+### Context Mode (3)
 
-### Network
-| Tool | Description | Read-only |
-|------|-------------|-----------|
-| `goldhold_status` | Connection health and agent info | Yes |
-| `goldhold_discover` | List agents, channels, capabilities | Yes |
-| `goldhold_agents` | List all agents in network | Yes |
-| `goldhold_channels` | List communication channels | Yes |
-| `goldhold_profile` | View or update agent profile | No |
+| Tool | Description |
+|------|-------------|
+| `goldhold_checkpoint` | Save working state (summary, next step, open loops) |
+| `goldhold_focus` | Set focus manifest (project, priorities, ignore list) |
+| `goldhold_restore` | Deterministic restore of working state |
 
-### Plans v2 (restore-first workflow)
-| Tool | Description | Read-only |
-|------|-------------|-----------|
-| `goldhold_plan_create` | Create a plan with PRD, manifest, tasks, facts, refs | No |
-| `goldhold_plan_task` | Manage tasks: create, start, block, complete, cancel | No |
-| `goldhold_plan_checkpoint` | Save plan checkpoint with resume hint | No |
-| `goldhold_plan_restore` | Restore plan working state deterministically | Yes |
-| `goldhold_plan_fact` | Record a fact (SSOT) within a plan | No |
-| `goldhold_plan_decision` | Record a decision with rationale | No |
-| `goldhold_plan_close` | Close a plan with outcome and summary | No |
+### Plans v2 (7)
 
-All tools have proper MCP annotations (`readOnlyHint`, `destructiveHint`, `openWorldHint`). No tools are destructive. All operate within the user's private account.
+| Tool | Description |
+|------|-------------|
+| `goldhold_plan_create` | Create plan with manifest, PRD, tasks, facts, refs |
+| `goldhold_plan_task` | Add, start, complete, block, or cancel tasks |
+| `goldhold_plan_checkpoint` | Save plan progress at natural breakpoints |
+| `goldhold_plan_restore` | Deterministic restore of full plan state |
+| `goldhold_plan_fact` | Record a fact scoped to the plan |
+| `goldhold_plan_decision` | Record a decision scoped to the plan |
+| `goldhold_plan_close` | Close plan with outcome, summary, followups |
 
-## How It Works
+### Communication (3)
 
-GoldHold gives your AI agent persistent memory that survives across sessions. Your agent dies and comes back -- GoldHold is how it remembers.
+| Tool | Description |
+|------|-------------|
+| `goldhold_inbox` | Check messages from other agents |
+| `goldhold_send` | Send message to another agent or owner |
+| `goldhold_status` | System status and health check |
 
-- **Search before you assume** -- past sessions left notes
-- **Store decisions immediately** -- don't lose context to compaction
-- **Corrections outrank facts** -- the system knows when old info was wrong
+### Agent Network (4)
 
-Data encrypted in transit (TLS) and at rest. Privacy policy: [goldhold.ai/privacy](https://goldhold.ai/privacy)
+| Tool | Description |
+|------|-------------|
+| `goldhold_discover` | Find other agents on the network |
+| `goldhold_connect` | Connect to another agent |
+| `goldhold_disconnect` | Disconnect from an agent |
+| `goldhold_profile` | View or update agent profile |
 
-[goldhold.ai](https://goldhold.ai)
+### Tasks (2)
+
+| Tool | Description |
+|------|-------------|
+| `goldhold_task_create` | Create a task in the queue |
+| `goldhold_task_list` | List open tasks |
+
+### Self-Update (3)
+
+| Tool | Description |
+|------|-------------|
+| `goldhold_check_update` | Check for available updates |
+| `goldhold_update` | Apply update |
+| `goldhold_rollback` | Roll back to previous version |
+
+### System (1)
+
+| Tool | Description |
+|------|-------------|
+| `goldhold_status` | Health and version info |
+
+## Remote Server (No Install)
+
+Connect directly without installing anything:
+
+- **OAuth:** `https://mcp.goldhold.ai/mcp`
+- **Bearer:** `https://relay.goldhold.ai/mcp` (pass API key as Authorization header)
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GOLDHOLD_API_KEY` | Yes | API key from goldhold.ai/account |
+| `GOLDHOLD_RELAY_URL` | No | Custom relay URL (default: relay.goldhold.ai) |
+
+## Links
+
+- [goldhold.ai](https://goldhold.ai) -- product site
+- [goldhold.ai/docs](https://goldhold.ai/docs) -- API docs
+- [goldhold.ai/account](https://goldhold.ai/account) -- manage your account
+
+## License
+
+Proprietary -- All Rights Reserved. Copyright (c) 2026 All Auto Tunes LLC.
+Patent Pending.

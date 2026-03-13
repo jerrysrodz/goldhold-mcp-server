@@ -173,7 +173,7 @@ export async function planCreate(planName, goal, successCriteria, inScope, outOf
   // Facts
   for (const f of (facts || [])) {
     storeItems.push({
-      subject: `SSOT: ${f.topic}`, body: JSON.stringify({ plan_slug: slug, topic: f.topic, confidence: f.confidence || "high", source: f.source || "plan_create" }),
+      subject: `SSOT: ${f.topic}`, body: JSON.stringify({ plan_slug: slug, topic: f.topic, body: f.body || f.topic, confidence: f.confidence || "high", source: f.source || "plan_create" }),
       type: "FACT", namespace: ns, metadata: { plan_slug: slug, topic: f.topic }, dedupe_key: `${slug}:fact:${f.topic}`
     });
   }
@@ -189,7 +189,7 @@ export async function planCreate(planName, goal, successCriteria, inScope, outOf
 
   // Schema version
   storeItems.push({
-    subject: "SSOT: schema_version", body: JSON.stringify({ plan_slug: slug, topic: "schema_version", confidence: "high", source: "plan_create" }),
+    subject: "SSOT: schema_version", body: JSON.stringify({ plan_slug: slug, topic: "schema_version", body: "plans_v2", confidence: "high", source: "plan_create" }),
     type: "FACT", namespace: ns, metadata: { plan_slug: slug, topic: "schema_version" }, dedupe_key: `${slug}:fact:schema_version`
   });
 
@@ -200,7 +200,21 @@ export async function planCreate(planName, goal, successCriteria, inScope, outOf
 export async function planTask(planSlug, action, taskId, fields) {
   const ns = `plans/${planSlug}`;
   if (action === "create") {
-    const tid = taskId || `T-${String(Date.now()).slice(-4)}`;
+    // Monotonic task-id allocator: fetch existing tasks to find next T-NNN
+    let nextNum = 1;
+    if (!taskId) {
+      try {
+        const restored = await planRestore(planSlug, 2000, false);
+        if (restored && restored.tasks) {
+          const nums = restored.tasks.map(t => {
+            const m = t.task_id && t.task_id.match(/^T-(\d+)$/);
+            return m ? parseInt(m[1], 10) : 0;
+          });
+          if (nums.length > 0) nextNum = Math.max(...nums) + 1;
+        }
+      } catch (_) { /* proceed with T-001 if restore fails */ }
+    }
+    const tid = taskId || `T-${String(nextNum).padStart(3, "0")}`;
     const item = {
       subject: `TASK ${tid}: ${fields.title}`,
       body: JSON.stringify({ plan_slug: planSlug, task_id: tid, title: fields.title, description: fields.description || fields.title, status: "open", priority: fields.priority || "normal", order: fields.order || 999, blocked_by: fields.blocked_by || [], depends_on: fields.depends_on || [], acceptance_criteria: fields.acceptance_criteria || [], owner: fields.owner || "chief", updated_at: new Date().toISOString() }),
@@ -212,24 +226,49 @@ export async function planTask(planSlug, action, taskId, fields) {
   const transitions = { start: "active", block: "blocked", complete: "done", cancel: "cancelled", update: fields.status || "open", reorder: fields.status || "open" };
   if (!transitions[action]) return { ok: false, error: `Unknown action: ${action}` };
   const newStatus = transitions[action];
+  // Fetch existing task to preserve fields not being updated
+  let existing = {};
+  try {
+    const restored = await planRestore(planSlug, 4000, false);
+    if (restored && restored.tasks) {
+      const found = restored.tasks.find(t => t.task_id === taskId);
+      if (found) existing = found;
+    }
+  } catch (_) { /* proceed with defaults if restore fails */ }
   const item = {
-    subject: `TASK ${taskId}: ${fields.title || taskId}`,
-    body: JSON.stringify({ plan_slug: planSlug, task_id: taskId, title: fields.title || taskId, description: fields.description || "", status: newStatus, priority: fields.priority || "normal", order: fields.order || 999, blocked_by: fields.blocked_by || [], depends_on: fields.depends_on || [], acceptance_criteria: fields.acceptance_criteria || [], owner: fields.owner || "chief", note: fields.note || null, updated_at: new Date().toISOString() }),
+    subject: `TASK ${taskId}: ${fields.title || existing.title || taskId}`,
+    body: JSON.stringify({ plan_slug: planSlug, task_id: taskId, title: fields.title || existing.title || taskId, description: fields.description || existing.description || "", status: newStatus, priority: fields.priority || existing.priority || "normal", order: fields.order != null ? fields.order : (existing.order != null ? existing.order : 999), blocked_by: fields.blocked_by || existing.blocked_by || [], depends_on: fields.depends_on || existing.depends_on || [], acceptance_criteria: fields.acceptance_criteria || existing.acceptance_criteria || [], owner: fields.owner || existing.owner || "chief", note: fields.note || null, updated_at: new Date().toISOString() }),
     type: "DIRECTIVE", namespace: ns, metadata: { plan_slug: planSlug, task_id: taskId }, dedupe_key: `${planSlug}:${taskId}`, auto_supersede: true
   };
   const result = await turn(null, [item], null, true);
-  return { ok: result.ok, task_id: taskId, status: newStatus, stored: result.stored };
+  return { ok: result.ok, task_id: taskId, status: newStatus, stored: result.stored, task: { title: fields.title || existing.title || taskId, priority: fields.priority || existing.priority || "normal", note: fields.note || null } };
 }
 
 export async function planCheckpoint(planSlug, objective, currentState, openLoops, nextStep, activeTaskId, activeRefs, resumeHint) {
   const ns = `plans/${planSlug}`;
+  // Compute task counts from current plan state
+  let taskCounts = { tasks_total: 0, tasks_done: 0, tasks_open: 0, tasks_blocked: 0, tasks_active: 0, tasks_cancelled: 0 };
+  try {
+    const restored = await planRestore(planSlug, 2000, false);
+    if (restored && restored.tasks) {
+      taskCounts.tasks_total = restored.tasks.length;
+      for (const t of restored.tasks) {
+        const s = t.status || "open";
+        if (s === "done") taskCounts.tasks_done++;
+        else if (s === "blocked") taskCounts.tasks_blocked++;
+        else if (s === "active") taskCounts.tasks_active++;
+        else if (s === "cancelled") taskCounts.tasks_cancelled++;
+        else taskCounts.tasks_open++;
+      }
+    }
+  } catch (_) { /* proceed without counts if restore fails */ }
   const item = {
     subject: `CHECKPOINT: ${planSlug}`,
-    body: JSON.stringify({ plan_slug: planSlug, objective: objective || "", active_task_id: activeTaskId || null, next_step: nextStep || null, current_state: currentState || null, open_loops: openLoops || [], active_refs: activeRefs || [], resume_hint: resumeHint || nextStep || null }),
+    body: JSON.stringify({ plan_slug: planSlug, objective: objective || "", active_task_id: activeTaskId || null, next_step: nextStep || null, current_state: currentState || null, open_loops: openLoops || [], active_refs: activeRefs || [], resume_hint: resumeHint || nextStep || null, ...taskCounts }),
     type: "CHECKPOINT", namespace: ns, metadata: { plan_slug: planSlug }, dedupe_key: `${planSlug}:checkpoint:latest`
   };
   const result = await turn(null, [item], null, true);
-  return { ok: result.ok, stored: result.stored };
+  return { ok: result.ok, stored: result.stored, ...taskCounts };
 }
 
 export async function planRestore(planSlug, contextBudget, includeClosed) {
@@ -258,11 +297,17 @@ export async function planDecision(planSlug, topic, body, why, impact, replaces)
 
 export async function planClose(planSlug, outcome, summary, followups) {
   const ns = `plans/${planSlug}`;
+  // Fetch existing manifest to preserve full metadata on close
+  let existingManifest = {};
+  try {
+    const restored = await planRestore(planSlug, 2000, false);
+    if (restored && restored.manifest) existingManifest = restored.manifest;
+  } catch (_) { /* proceed with minimal manifest if restore fails */ }
   const storeItems = [
     { subject: `CHECKPOINT: ${planSlug}`, body: JSON.stringify({ plan_slug: planSlug, objective: "Plan close", next_step: null, resume_hint: null, outcome }), type: "CHECKPOINT", namespace: ns, metadata: { plan_slug: planSlug }, dedupe_key: `${planSlug}:checkpoint:latest` },
     { subject: "SSOT: outcome", body: JSON.stringify({ plan_slug: planSlug, topic: "outcome", body: outcome, confidence: "high", source: "plan_close" }), type: "FACT", namespace: ns, metadata: { plan_slug: planSlug, topic: "outcome" }, dedupe_key: `${planSlug}:fact:outcome` },
-    { subject: `PLAN MANIFEST: ${planSlug}`, body: JSON.stringify({ plan_slug: planSlug, status: "closed", outcome, summary, followups: followups || [] }), type: "MANIFEST", namespace: ns, metadata: { plan_slug: planSlug }, dedupe_key: `${planSlug}:manifest` }
+    { subject: `PLAN MANIFEST: ${planSlug}`, body: JSON.stringify({ ...existingManifest, plan_slug: planSlug, status: "closed", outcome, summary, followups: followups || [] }), type: "MANIFEST", namespace: ns, metadata: { plan_slug: planSlug }, dedupe_key: `${planSlug}:manifest` }
   ];
   const result = await turn(null, storeItems, null, true);
-  return { ok: result.ok, stored: result.stored };
+  return { ok: result.ok, stored: result.stored, manifest: existingManifest };
 }

@@ -9,7 +9,7 @@ import * as relay from "./relay-client.js";
 
 const server = new McpServer({
   name: "goldhold",
-  version: "1.4.0",
+  version: "1.4.1",
 });
 
 // 1. goldhold_search
@@ -371,7 +371,7 @@ server.tool(
       depends_on: z.array(z.string()).optional(),
       acceptance_criteria: z.array(z.string()).optional(),
     })).optional().describe("Initial tasks"),
-    facts: z.array(z.object({ topic: z.string(), confidence: z.string().optional(), source: z.string().optional() })).optional(),
+    facts: z.array(z.object({ topic: z.string(), body: z.string().optional().describe("The actual fact content/assertion"), confidence: z.string().optional(), source: z.string().optional() })).optional(),
     refs: z.array(z.object({ label: z.string(), kind: z.string().optional(), ref: z.string(), selector: z.string().optional() })).optional(),
   },
   async ({ plan_name, goal, success_criteria, in_scope, out_of_scope, tasks, facts, refs }) => {
@@ -400,7 +400,16 @@ server.tool(
   },
   async ({ plan_slug, action, task_id, ...fields }) => {
     const result = await relay.planTask(plan_slug, action, task_id, fields);
-    return { content: [{ type: "text", text: result.ok ? `Task ${result.task_id}: ${result.status || action}` : `Failed: ${JSON.stringify(result)}` }] };
+    if (!result.ok) return { content: [{ type: "text", text: `Failed: ${JSON.stringify(result)}` }] };
+    const parts = [`Task ${result.task_id}: ${result.status || action}`];
+    // Return authoritative task state for non-create actions
+    if (action !== "create" && result.task) {
+      parts.push(`Title: ${result.task.title || result.task_id}`);
+      parts.push(`Priority: ${result.task.priority || "normal"}`);
+      if (result.task.note) parts.push(`Note: ${result.task.note}`);
+    }
+    parts.push(`\nSuggestion: Consider checkpointing if this completes a logical unit of work.`);
+    return { content: [{ type: "text", text: parts.join("\n") }] };
   }
 );
 
@@ -420,7 +429,12 @@ server.tool(
   },
   async ({ plan_slug, objective, current_state, open_loops, next_step, active_task_id, active_refs, resume_hint }) => {
     const result = await relay.planCheckpoint(plan_slug, objective, current_state, open_loops, next_step, active_task_id, active_refs, resume_hint);
-    return { content: [{ type: "text", text: result.ok ? `Checkpoint saved for ${plan_slug}` : `Failed: ${JSON.stringify(result)}` }] };
+    if (!result.ok) return { content: [{ type: "text", text: `Failed: ${JSON.stringify(result)}` }] };
+    const parts = [`Checkpoint saved for ${plan_slug}`];
+    parts.push(`Tasks: ${result.tasks_total} total, ${result.tasks_done} done, ${result.tasks_open} open, ${result.tasks_active} active, ${result.tasks_blocked} blocked`);
+    if (next_step) parts.push(`Next: ${next_step}`);
+    if (resume_hint) parts.push(`Resume: ${resume_hint}`);
+    return { content: [{ type: "text", text: parts.join("\n") }] };
   }
 );
 
@@ -503,7 +517,15 @@ server.tool(
   },
   async ({ plan_slug, outcome, summary, followups }) => {
     const result = await relay.planClose(plan_slug, outcome, summary, followups);
-    return { content: [{ type: "text", text: result.ok ? `Plan closed: ${plan_slug} (${outcome})` : `Failed: ${JSON.stringify(result)}` }] };
+    if (!result.ok) return { content: [{ type: "text", text: `Failed: ${JSON.stringify(result)}` }] };
+    const parts = [`Plan closed: ${plan_slug}`, `Outcome: ${outcome}`, `Summary: ${summary}`];
+    if (followups && followups.length) parts.push(`Followups:\n${followups.map(f => `- ${f}`).join("\n")}`);
+    if (result.manifest) {
+      const m = result.manifest;
+      if (m.plan_name) parts.push(`Plan: ${m.plan_name}`);
+      if (m.goal) parts.push(`Goal: ${m.goal}`);
+    }
+    return { content: [{ type: "text", text: parts.join("\n") }] };
   }
 );
 
