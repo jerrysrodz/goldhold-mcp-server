@@ -9,7 +9,7 @@ import * as relay from "./relay-client.js";
 
 const server = new McpServer({
   name: "goldhold",
-  version: "1.2.0",
+  version: "1.3.0",
 });
 
 // 1. goldhold_search
@@ -292,4 +292,62 @@ server.tool(
 );
 
 const transport = new StdioServerTransport();
+
+// 20. goldhold_checkpoint
+server.tool(
+  "goldhold_checkpoint",
+  "Save a checkpoint of current working state. Use at natural breakpoints to enable seamless resume.",
+  {
+    summary: z.string().describe("What was being worked on and current status"),
+    next_step: z.string().optional().describe("What should happen next"),
+    scope: z.string().optional().describe("Active project or scope name"),
+    open_loops: z.array(z.string()).optional().describe("Unresolved items to carry forward"),
+  },
+  async ({ summary, next_step, scope, open_loops }) => {
+    const result = await relay.checkpoint(summary, next_step, scope, open_loops);
+    return { content: [{ type: "text", text: result.ok ? `Checkpoint saved: ${summary.slice(0, 100)}` : `Failed: ${JSON.stringify(result)}` }] };
+  }
+);
+
+// 21. goldhold_focus
+server.tool(
+  "goldhold_focus",
+  "Set the current focus manifest -- what project is active, what matters now, what to ignore. Also creates ASSET_REF records for each ref.",
+  {
+    project: z.string().describe("Active project or objective"),
+    priorities: z.array(z.string()).optional().describe("What matters right now"),
+    ignore: z.array(z.string()).optional().describe("What to deprioritize or ignore"),
+    refs: z.array(z.string()).optional().describe("Key files, URLs, or resource identifiers in scope"),
+  },
+  async ({ project, priorities, ignore, refs }) => {
+    const result = await relay.focus(project, priorities, ignore, refs);
+    return { content: [{ type: "text", text: result.ok ? `Focus set: ${project}` : `Failed: ${JSON.stringify(result)}` }] };
+  }
+);
+
+// 22. goldhold_restore
+server.tool(
+  "goldhold_restore",
+  "Restore the current working state: latest checkpoint, focus manifest, asset refs, unresolved items, directives, and corrections. Use at session start instead of generic search.",
+  {
+    context_budget: z.number().optional().default(2000).describe("Max tokens for restore payload"),
+  },
+  async ({ context_budget }) => {
+    const data = await relay.resume(true, context_budget || 2000);
+    if (!data.ok) return { content: [{ type: "text", text: `Restore failed: ${JSON.stringify(data)}` }] };
+    const ctx = data.context || {};
+    const parts = [];
+    if (ctx.focus_manifest) parts.push(`FOCUS: ${ctx.focus_manifest.subject}\n${ctx.focus_manifest.body}`);
+    if (ctx.latest_checkpoint) parts.push(`CHECKPOINT: ${ctx.latest_checkpoint.subject}\n${ctx.latest_checkpoint.body}`);
+    if (ctx.active_asset_refs?.length) parts.push(`ASSETS:\n${ctx.active_asset_refs.map(a => `- ${a.subject}`).join("\n")}`);
+    if (ctx.unresolved_working?.length) parts.push(`WORKING:\n${ctx.unresolved_working.map(w => `- [${w.type}] ${w.subject}`).join("\n")}`);
+    if (ctx.resume_hint) parts.push(`RESUME HINT: ${ctx.resume_hint}`);
+    if (ctx.last_session_summary) parts.push(`LAST SESSION: ${ctx.last_session_summary}`);
+    if (ctx.active_directives?.length) parts.push(`DIRECTIVES:\n${ctx.active_directives.map(d => `- ${d.subject}`).join("\n")}`);
+    if (ctx.recent_corrections?.length) parts.push(`CORRECTIONS:\n${ctx.recent_corrections.map(c => `- ${c.subject} (corrects: ${c.corrects || "N/A"})`).join("\n")}`);
+    if (ctx.unread_messages) parts.push(`UNREAD: ${ctx.unread_messages} message(s)`);
+    return { content: [{ type: "text", text: parts.length ? parts.join("\n\n") : "No working state found. This is a fresh start." }] };
+  }
+);
+
 await server.connect(transport);

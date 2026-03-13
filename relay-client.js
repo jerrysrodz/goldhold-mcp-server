@@ -26,9 +26,10 @@ export async function memorySearch(query, folder, limit) {
 }
 
 export async function store(subject, body, folder, type) {
-  const payload = { to: "self", subject, body, type: type || "NOTE" };
-  if (folder) payload.namespace = folder;
-  return relayCall("POST", "/v1/send", payload);
+  // Use /v1/turn store path for typed memory writes
+  const storeItem = { subject, body, type: type || "NOTE" };
+  if (folder) storeItem.namespace = folder;
+  return relayCall("POST", "/v1/turn", { store: [storeItem], compact: true });
 }
 
 export async function turn(search, storeItems, send, compact) {
@@ -39,8 +40,34 @@ export async function turn(search, storeItems, send, compact) {
   return relayCall("POST", "/v1/turn", payload);
 }
 
-export async function resume(compact) {
-  return relayCall("POST", "/v1/auto", { compact: compact !== false });
+export async function resume(compact, contextBudget) {
+  const payload = { compact: compact !== false };
+  if (contextBudget) payload.context_budget = contextBudget;
+  return relayCall("POST", "/v1/auto", payload);
+}
+
+export async function checkpoint(summary, nextStep, scope, openLoops) {
+  const body = [summary];
+  if (nextStep) body.push(`Next: ${nextStep}`);
+  if (scope) body.push(`Scope: ${scope}`);
+  if (openLoops?.length) body.push(`Open loops: ${openLoops.join("; ")}`);
+  return store(`CHECKPOINT: ${scope || "session"}`, body.join("\n"), null, "CHECKPOINT");
+}
+
+export async function focus(project, priorities, ignore, refs) {
+  const body = [`Project: ${project}`];
+  if (priorities?.length) body.push(`Priorities: ${priorities.join("; ")}`);
+  if (ignore?.length) body.push(`Ignore: ${ignore.join("; ")}`);
+  if (refs?.length) body.push(`Refs: ${refs.join("; ")}`);
+  // Write the manifest
+  const result = await store(`MANIFEST: ${project}`, body.join("\n"), null, "MANIFEST");
+  // Write individual ASSET_REF packets for each ref
+  if (refs?.length) {
+    for (const ref of refs) {
+      await store(`ASSET_REF: ${ref}`, `Referenced by project: ${project}`, null, "ASSET_REF");
+    }
+  }
+  return result;
 }
 
 export async function batch(ops) {
