@@ -134,3 +134,135 @@ export async function taskComplete(taskId, notes) {
 export async function taskUpdate(taskId, updates) {
   return relayCall("PATCH", `/v1/tasks/${taskId}`, updates);
 }
+
+// ─── PLANS V2 ────────────────────────────────────────────────────────────
+
+function slugify(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 64);
+}
+
+export async function planCreate(planName, goal, successCriteria, inScope, outOfScope, tasks, facts, refs) {
+  const slug = slugify(planName);
+  const ns = `plans/${slug}`;
+  const storeItems = [];
+
+  // PRD/DOCUMENT
+  storeItems.push({
+    subject: `PRD: ${planName}`, body: JSON.stringify({ plan_slug: slug, goal, success_criteria: successCriteria, in_scope: inScope, out_of_scope: outOfScope }),
+    type: "DOCUMENT", namespace: ns, metadata: { plan_slug: slug }
+  });
+
+  // MANIFEST
+  const taskIds = (tasks || []).map((_, i) => `T-${String(i + 1).padStart(3, "0")}`);
+  storeItems.push({
+    subject: `PLAN MANIFEST: ${planName}`,
+    body: JSON.stringify({ plan_slug: slug, plan_name: planName, goal, success_criteria: successCriteria, phase: "build", status: "active", in_scope: inScope || [], out_of_scope: outOfScope || [], active_task_id: taskIds[0] || null, active_refs: (refs || []).map((_, i) => `A-${String(i + 1).padStart(3, "0")}`) }),
+    type: "MANIFEST", namespace: ns, metadata: { plan_slug: slug }, dedupe_key: `${slug}:manifest`
+  });
+
+  // Tasks as DIRECTIVEs
+  for (let i = 0; i < (tasks || []).length; i++) {
+    const t = tasks[i]; const tid = taskIds[i];
+    storeItems.push({
+      subject: `TASK ${tid}: ${t.title}`,
+      body: JSON.stringify({ plan_slug: slug, task_id: tid, title: t.title, description: t.description || t.title, status: "open", priority: t.priority || "normal", order: i + 1, blocked_by: t.blocked_by || [], depends_on: t.depends_on || [], acceptance_criteria: t.acceptance_criteria || [], owner: t.owner || "chief", updated_at: new Date().toISOString() }),
+      type: "DIRECTIVE", namespace: ns, metadata: { plan_slug: slug, task_id: tid }, dedupe_key: `${slug}:${tid}`
+    });
+  }
+
+  // Facts
+  for (const f of (facts || [])) {
+    storeItems.push({
+      subject: `SSOT: ${f.topic}`, body: JSON.stringify({ plan_slug: slug, topic: f.topic, confidence: f.confidence || "high", source: f.source || "plan_create" }),
+      type: "FACT", namespace: ns, metadata: { plan_slug: slug, topic: f.topic }, dedupe_key: `${slug}:fact:${f.topic}`
+    });
+  }
+
+  // Asset refs
+  for (let i = 0; i < (refs || []).length; i++) {
+    const r = refs[i]; const aid = `A-${String(i + 1).padStart(3, "0")}`;
+    storeItems.push({
+      subject: `ASSET ${aid}: ${r.label}`, body: JSON.stringify({ plan_slug: slug, asset_id: aid, label: r.label, kind: r.kind || "file", ref: r.ref, selector: r.selector || null, active: true }),
+      type: "ASSET_REF", namespace: ns, metadata: { plan_slug: slug, asset_id: aid }, dedupe_key: `${slug}:asset:${aid}`
+    });
+  }
+
+  // Schema version
+  storeItems.push({
+    subject: "SSOT: schema_version", body: JSON.stringify({ plan_slug: slug, topic: "schema_version", confidence: "high", source: "plan_create" }),
+    type: "FACT", namespace: ns, metadata: { plan_slug: slug, topic: "schema_version" }, dedupe_key: `${slug}:fact:schema_version`
+  });
+
+  const result = await turn(null, storeItems, null, true);
+  return { ok: result.ok, plan_slug: slug, task_ids: taskIds, created_packets: result.stored || [] };
+}
+
+export async function planTask(planSlug, action, taskId, fields) {
+  const ns = `plans/${planSlug}`;
+  if (action === "create") {
+    const tid = taskId || `T-${String(Date.now()).slice(-4)}`;
+    const item = {
+      subject: `TASK ${tid}: ${fields.title}`,
+      body: JSON.stringify({ plan_slug: planSlug, task_id: tid, title: fields.title, description: fields.description || fields.title, status: "open", priority: fields.priority || "normal", order: fields.order || 999, blocked_by: fields.blocked_by || [], depends_on: fields.depends_on || [], acceptance_criteria: fields.acceptance_criteria || [], owner: fields.owner || "chief", updated_at: new Date().toISOString() }),
+      type: "DIRECTIVE", namespace: ns, metadata: { plan_slug: planSlug, task_id: tid }, dedupe_key: `${planSlug}:${tid}`
+    };
+    const result = await turn(null, [item], null, true);
+    return { ok: result.ok, task_id: tid, stored: result.stored };
+  }
+  const transitions = { start: "active", block: "blocked", complete: "done", cancel: "cancelled", update: fields.status || "open", reorder: fields.status || "open" };
+  if (!transitions[action]) return { ok: false, error: `Unknown action: ${action}` };
+  const newStatus = transitions[action];
+  const item = {
+    subject: `TASK ${taskId}: ${fields.title || taskId}`,
+    body: JSON.stringify({ plan_slug: planSlug, task_id: taskId, title: fields.title || taskId, description: fields.description || "", status: newStatus, priority: fields.priority || "normal", order: fields.order || 999, blocked_by: fields.blocked_by || [], depends_on: fields.depends_on || [], acceptance_criteria: fields.acceptance_criteria || [], owner: fields.owner || "chief", note: fields.note || null, updated_at: new Date().toISOString() }),
+    type: "DIRECTIVE", namespace: ns, metadata: { plan_slug: planSlug, task_id: taskId }, dedupe_key: `${planSlug}:${taskId}`, auto_supersede: true
+  };
+  const result = await turn(null, [item], null, true);
+  return { ok: result.ok, task_id: taskId, status: newStatus, stored: result.stored };
+}
+
+export async function planCheckpoint(planSlug, objective, currentState, openLoops, nextStep, activeTaskId, activeRefs, resumeHint) {
+  const ns = `plans/${planSlug}`;
+  const item = {
+    subject: `CHECKPOINT: ${planSlug}`,
+    body: JSON.stringify({ plan_slug: planSlug, objective: objective || "", active_task_id: activeTaskId || null, next_step: nextStep || null, current_state: currentState || null, open_loops: openLoops || [], active_refs: activeRefs || [], resume_hint: resumeHint || nextStep || null }),
+    type: "CHECKPOINT", namespace: ns, metadata: { plan_slug: planSlug }, dedupe_key: `${planSlug}:checkpoint:latest`
+  };
+  const result = await turn(null, [item], null, true);
+  return { ok: result.ok, stored: result.stored };
+}
+
+export async function planRestore(planSlug, contextBudget, includeClosed) {
+  return relayCall("POST", "/v1/plan/restore", { plan_slug: planSlug, context_budget: contextBudget || 2000, include_closed: includeClosed || false });
+}
+
+export async function planFact(planSlug, topic, body, confidence, source) {
+  const ns = `plans/${planSlug}`;
+  const item = {
+    subject: `SSOT: ${topic}`, body: JSON.stringify({ plan_slug: planSlug, topic, body, confidence: confidence || "high", source: source || "agent" }),
+    type: "FACT", namespace: ns, metadata: { plan_slug: planSlug, topic }, dedupe_key: `${planSlug}:fact:${topic}`
+  };
+  const result = await turn(null, [item], null, true);
+  return { ok: result.ok, stored: result.stored };
+}
+
+export async function planDecision(planSlug, topic, body, why, impact, replaces) {
+  const ns = `plans/${planSlug}`;
+  const item = {
+    subject: `DECISION: ${topic}`, body: JSON.stringify({ plan_slug: planSlug, topic, body, why, impact, replaces: replaces || null }),
+    type: "DECISION", namespace: ns, metadata: { plan_slug: planSlug, topic }
+  };
+  const result = await turn(null, [item], null, true);
+  return { ok: result.ok, stored: result.stored };
+}
+
+export async function planClose(planSlug, outcome, summary, followups) {
+  const ns = `plans/${planSlug}`;
+  const storeItems = [
+    { subject: `CHECKPOINT: ${planSlug}`, body: JSON.stringify({ plan_slug: planSlug, objective: "Plan close", next_step: null, resume_hint: null, outcome }), type: "CHECKPOINT", namespace: ns, metadata: { plan_slug: planSlug }, dedupe_key: `${planSlug}:checkpoint:latest` },
+    { subject: "SSOT: outcome", body: JSON.stringify({ plan_slug: planSlug, topic: "outcome", body: outcome, confidence: "high", source: "plan_close" }), type: "FACT", namespace: ns, metadata: { plan_slug: planSlug, topic: "outcome" }, dedupe_key: `${planSlug}:fact:outcome` },
+    { subject: `PLAN MANIFEST: ${planSlug}`, body: JSON.stringify({ plan_slug: planSlug, status: "closed", outcome, summary, followups: followups || [] }), type: "MANIFEST", namespace: ns, metadata: { plan_slug: planSlug }, dedupe_key: `${planSlug}:manifest` }
+  ];
+  const result = await turn(null, storeItems, null, true);
+  return { ok: result.ok, stored: result.stored };
+}

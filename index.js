@@ -9,7 +9,7 @@ import * as relay from "./relay-client.js";
 
 const server = new McpServer({
   name: "goldhold",
-  version: "1.3.0",
+  version: "1.4.0",
 });
 
 // 1. goldhold_search
@@ -347,6 +347,163 @@ server.tool(
     if (ctx.recent_corrections?.length) parts.push(`CORRECTIONS:\n${ctx.recent_corrections.map(c => `- ${c.subject} (corrects: ${c.corrects || "N/A"})`).join("\n")}`);
     if (ctx.unread_messages) parts.push(`UNREAD: ${ctx.unread_messages} message(s)`);
     return { content: [{ type: "text", text: parts.length ? parts.join("\n\n") : "No working state found. This is a fresh start." }] };
+  }
+);
+
+// ─── PLANS V2 ────────────────────────────────────────────────────────────
+
+// 23. goldhold_plan_create
+server.tool(
+  "goldhold_plan_create",
+  "Create a new plan with PRD, manifest, tasks, facts, and asset refs in one call. Returns plan_slug and task IDs.",
+  {
+    plan_name: z.string().describe("Human-readable plan name"),
+    goal: z.string().describe("What this plan achieves"),
+    success_criteria: z.array(z.string()).optional().describe("How to know the plan is done"),
+    in_scope: z.array(z.string()).optional().describe("What is in scope"),
+    out_of_scope: z.array(z.string()).optional().describe("What is out of scope"),
+    tasks: z.array(z.object({
+      title: z.string(),
+      description: z.string().optional(),
+      priority: z.string().optional(),
+      owner: z.string().optional(),
+      blocked_by: z.array(z.string()).optional(),
+      depends_on: z.array(z.string()).optional(),
+      acceptance_criteria: z.array(z.string()).optional(),
+    })).optional().describe("Initial tasks"),
+    facts: z.array(z.object({ topic: z.string(), confidence: z.string().optional(), source: z.string().optional() })).optional(),
+    refs: z.array(z.object({ label: z.string(), kind: z.string().optional(), ref: z.string(), selector: z.string().optional() })).optional(),
+  },
+  async ({ plan_name, goal, success_criteria, in_scope, out_of_scope, tasks, facts, refs }) => {
+    const result = await relay.planCreate(plan_name, goal, success_criteria, in_scope, out_of_scope, tasks, facts, refs);
+    return { content: [{ type: "text", text: result.ok ? `Plan created: ${result.plan_slug}\nTasks: ${(result.task_ids || []).join(", ")}\nPackets: ${(result.created_packets || []).length}` : `Failed: ${JSON.stringify(result)}` }] };
+  }
+);
+
+// 24. goldhold_plan_task
+server.tool(
+  "goldhold_plan_task",
+  "Manage tasks within a plan: create, start, block, complete, cancel, update, or reorder.",
+  {
+    plan_slug: z.string().describe("Plan slug"),
+    action: z.enum(["create", "start", "block", "complete", "cancel", "update", "reorder"]),
+    task_id: z.string().optional().describe("Task ID (T-001 format). Required for non-create actions."),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    priority: z.string().optional(),
+    order: z.number().optional(),
+    owner: z.string().optional(),
+    note: z.string().optional().describe("Completion or status note"),
+    blocked_by: z.array(z.string()).optional(),
+    depends_on: z.array(z.string()).optional(),
+    acceptance_criteria: z.array(z.string()).optional(),
+  },
+  async ({ plan_slug, action, task_id, ...fields }) => {
+    const result = await relay.planTask(plan_slug, action, task_id, fields);
+    return { content: [{ type: "text", text: result.ok ? `Task ${result.task_id}: ${result.status || action}` : `Failed: ${JSON.stringify(result)}` }] };
+  }
+);
+
+// 25. goldhold_plan_checkpoint
+server.tool(
+  "goldhold_plan_checkpoint",
+  "Save a plan checkpoint with task counts, active refs, and resume hint.",
+  {
+    plan_slug: z.string(),
+    objective: z.string().optional(),
+    current_state: z.string().optional(),
+    open_loops: z.array(z.string()).optional(),
+    next_step: z.string().optional(),
+    active_task_id: z.string().optional(),
+    active_refs: z.array(z.string()).optional(),
+    resume_hint: z.string().optional(),
+  },
+  async ({ plan_slug, objective, current_state, open_loops, next_step, active_task_id, active_refs, resume_hint }) => {
+    const result = await relay.planCheckpoint(plan_slug, objective, current_state, open_loops, next_step, active_task_id, active_refs, resume_hint);
+    return { content: [{ type: "text", text: result.ok ? `Checkpoint saved for ${plan_slug}` : `Failed: ${JSON.stringify(result)}` }] };
+  }
+);
+
+// 26. goldhold_plan_restore
+server.tool(
+  "goldhold_plan_restore",
+  "Restore a plan's working state: manifest, checkpoint, tasks, assets, corrections. Use at session start instead of search.",
+  {
+    plan_slug: z.string(),
+    context_budget: z.number().optional().default(2000),
+    include_closed: z.boolean().optional().default(false),
+  },
+  async ({ plan_slug, context_budget, include_closed }) => {
+    const data = await relay.planRestore(plan_slug, context_budget, include_closed);
+    if (!data.ok) return { content: [{ type: "text", text: `Restore failed: ${JSON.stringify(data)}` }] };
+    const d = data.data || data;
+    const parts = [];
+    if (d.manifest) {
+      let m = d.manifest;
+      try { const mb = JSON.parse(m.body); parts.push(`PLAN: ${mb.plan_name || plan_slug}\nGoal: ${mb.goal || ""}\nPhase: ${mb.phase || ""}\nStatus: ${mb.status || ""}`); } catch { parts.push(`MANIFEST: ${m.subject}`); }
+    }
+    if (d.latest_checkpoint) {
+      try { const cp = JSON.parse(d.latest_checkpoint.body); parts.push(`CHECKPOINT:\nNext: ${cp.next_step || "N/A"}\nResume: ${cp.resume_hint || "N/A"}`); } catch { parts.push(`CHECKPOINT: ${d.latest_checkpoint.subject}`); }
+    }
+    if (d.unresolved_tasks?.length) {
+      parts.push(`TASKS (${d.task_counts?.open || "?"} open, ${d.task_counts?.active || "?"} active, ${d.task_counts?.blocked || "?"} blocked):\n${d.unresolved_tasks.map(t => `- ${t.task_id || "?"} [${t.status}] ${t.title} (P:${t.priority})`).join("\n")}`);
+    }
+    if (d.active_asset_refs?.length) parts.push(`ASSETS:\n${d.active_asset_refs.map(a => `- ${a.asset_id}: ${a.label} (${a.ref})`).join("\n")}`);
+    if (d.facts_and_decisions?.length) parts.push(`FACTS/DECISIONS:\n${d.facts_and_decisions.map(f => `- [${f.type}] ${f.topic}: ${f.subject}`).join("\n")}`);
+    if (d.recent_corrections?.length) parts.push(`CORRECTIONS:\n${d.recent_corrections.map(c => `- ${c.subject}`).join("\n")}`);
+    if (d.resume_hint) parts.push(`RESUME: ${d.resume_hint}`);
+    return { content: [{ type: "text", text: parts.length ? parts.join("\n\n") : `No state found for plan: ${plan_slug}` }] };
+  }
+);
+
+// 27. goldhold_plan_fact
+server.tool(
+  "goldhold_plan_fact",
+  "Record a fact (SSOT) within a plan. Supersedes previous facts on the same topic.",
+  {
+    plan_slug: z.string(),
+    topic: z.string(),
+    body: z.string(),
+    confidence: z.string().optional(),
+    source: z.string().optional(),
+  },
+  async ({ plan_slug, topic, body, confidence, source }) => {
+    const result = await relay.planFact(plan_slug, topic, body, confidence, source);
+    return { content: [{ type: "text", text: result.ok ? `Fact recorded: ${topic}` : `Failed: ${JSON.stringify(result)}` }] };
+  }
+);
+
+// 28. goldhold_plan_decision
+server.tool(
+  "goldhold_plan_decision",
+  "Record a decision within a plan with rationale and impact.",
+  {
+    plan_slug: z.string(),
+    topic: z.string(),
+    body: z.string(),
+    why: z.string(),
+    impact: z.string().optional(),
+    replaces: z.string().optional(),
+  },
+  async ({ plan_slug, topic, body, why, impact, replaces }) => {
+    const result = await relay.planDecision(plan_slug, topic, body, why, impact, replaces);
+    return { content: [{ type: "text", text: result.ok ? `Decision recorded: ${topic}` : `Failed: ${JSON.stringify(result)}` }] };
+  }
+);
+
+// 29. goldhold_plan_close
+server.tool(
+  "goldhold_plan_close",
+  "Close a plan: writes final checkpoint, outcome fact, and closed manifest.",
+  {
+    plan_slug: z.string(),
+    outcome: z.string().describe("shipped, cancelled, deferred, etc."),
+    summary: z.string(),
+    followups: z.array(z.string()).optional(),
+  },
+  async ({ plan_slug, outcome, summary, followups }) => {
+    const result = await relay.planClose(plan_slug, outcome, summary, followups);
+    return { content: [{ type: "text", text: result.ok ? `Plan closed: ${plan_slug} (${outcome})` : `Failed: ${JSON.stringify(result)}` }] };
   }
 );
 
