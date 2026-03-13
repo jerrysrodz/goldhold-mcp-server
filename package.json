@@ -1,6 +1,6 @@
 {
   "name": "@goldhold/mcp-server",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "mcpName": "io.github.jerrysrodz/goldhold",
   "mcpRegistry": true,
   "description": "GoldHold MCP server -- persistent memory for AI agents. Search, store, and recall across sessions. https://goldhold.ai",

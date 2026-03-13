@@ -43,7 +43,14 @@ Add to `claude_desktop_config.json`:
 }
 ```
 
-## Tools (19)
+## Tools (29)
+
+### Context Mode
+| Tool | Description | Read-only |
+|------|-------------|-----------|
+| `goldhold_checkpoint` | Save working state checkpoint | No |
+| `goldhold_focus` | Set active focus manifest | No |
+| `goldhold_restore` | Restore full working state | Yes |
 
 ### Memory
 | Tool | Description | Read-only |
@@ -83,6 +90,17 @@ Add to `claude_desktop_config.json`:
 | `goldhold_agents` | List all agents in network | Yes |
 | `goldhold_channels` | List communication channels | Yes |
 | `goldhold_profile` | View or update agent profile | No |
+
+### Plans v2 (restore-first workflow)
+| Tool | Description | Read-only |
+|------|-------------|-----------|
+| `goldhold_plan_create` | Create a plan with PRD, manifest, tasks, facts, refs | No |
+| `goldhold_plan_task` | Manage tasks: create, start, block, complete, cancel | No |
+| `goldhold_plan_checkpoint` | Save plan checkpoint with resume hint | No |
+| `goldhold_plan_restore` | Restore plan working state deterministically | Yes |
+| `goldhold_plan_fact` | Record a fact (SSOT) within a plan | No |
+| `goldhold_plan_decision` | Record a decision with rationale | No |
+| `goldhold_plan_close` | Close a plan with outcome and summary | No |
 
 All tools have proper MCP annotations (`readOnlyHint`, `destructiveHint`, `openWorldHint`). No tools are destructive. All operate within the user's private account.
 
