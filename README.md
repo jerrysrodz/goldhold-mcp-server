@@ -2,6 +2,11 @@
 
 Persistent memory for AI agents. 29 MCP tools for search, storage, plans, context, messaging, tasks, networking, and self-update.
 
+## Included Claude Skill
+
+This repo includes a Claude Skill reviewers can use alongside the MCP server:
+- `skills/goldhold-persistent-memory/` -- GoldHold Persistent Memory (instructions + examples)
+
 ## Install
 
 ```bash
