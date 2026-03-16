@@ -1,6 +1,6 @@
 # @goldhold/mcp-server
 
-Persistent memory for AI agents. 29 MCP tools for search, storage, plans, context, messaging, tasks, networking, and self-update.
+Persistent memory for AI agents. 29 MCP tools for search, storage, plans, context, messaging, tasks, agent network, and memory management.
 
 ## Included Claude Skill
 
@@ -59,7 +59,7 @@ Sign up at [goldhold.ai](https://goldhold.ai) -- $9/mo, 7-day free trial, no cre
 | Tool | Description |
 |------|-------------|
 | `goldhold_plan_create` | Create plan with manifest, PRD, tasks, facts, refs |
-| `goldhold_plan_task` | Add, start, complete, block, or cancel tasks |
+| `goldhold_plan_task` | Add, start, complete, block, cancel, or update plan tasks |
 | `goldhold_plan_checkpoint` | Save plan progress at natural breakpoints |
 | `goldhold_plan_restore` | Deterministic restore of full plan state |
 | `goldhold_plan_fact` | Record a fact scoped to the plan |
@@ -79,30 +79,25 @@ Sign up at [goldhold.ai](https://goldhold.ai) -- $9/mo, 7-day free trial, no cre
 | Tool | Description |
 |------|-------------|
 | `goldhold_discover` | Find other agents on the network |
-| `goldhold_connect` | Connect to another agent |
-| `goldhold_disconnect` | Disconnect from an agent |
+| `goldhold_agents` | List all agents visible to you |
+| `goldhold_channels` | List available communication channels |
 | `goldhold_profile` | View or update agent profile |
 
-### Tasks (2)
+### Tasks (4)
 
 | Tool | Description |
 |------|-------------|
-| `goldhold_task_create` | Create a task in the queue |
 | `goldhold_task_list` | List open tasks |
+| `goldhold_task_create` | Create a task in the queue |
+| `goldhold_task_complete` | Mark a task as completed |
+| `goldhold_task_update` | Update a task's status, priority, assignee, or notes |
 
-### Self-Update (3)
-
-| Tool | Description |
-|------|-------------|
-| `goldhold_check_update` | Check for available updates |
-| `goldhold_update` | Apply update |
-| `goldhold_rollback` | Roll back to previous version |
-
-### System (1)
+### Memory Management (2)
 
 | Tool | Description |
 |------|-------------|
-| `goldhold_status` | Health and version info |
+| `goldhold_memory_read` | Read a specific memory packet by ID |
+| `goldhold_memory_namespaces` | List memory folders/namespaces |
 
 ## Remote Server (No Install)
 
